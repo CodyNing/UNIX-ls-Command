@@ -2,3 +2,4 @@
 myls
 *.o
 main
+infodemo.c
