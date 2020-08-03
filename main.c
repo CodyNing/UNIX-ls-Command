@@ -2,13 +2,15 @@
 #include <dirent.h>
 #include <sys/types.h>
 #include <sys/stat.h>
-#include <unistd.h>
+//#include <unistd.h>
 #include <stdlib.h>
 #include <linux/limits.h>
 #include <string.h>
 #include <grp.h>
 #include <pwd.h>
 #include <time.h>
+#include "argReader.h"
+#include "pathReader.h"
 
 char* getAndPrintGroup(gid_t grpNum)
 {
@@ -71,6 +73,15 @@ void getModeStr(mode_t m, char *modeStr){
 }
 
 int main(int argc, char **argv){
+    argSet *args = ArgReader_getArgSet(argc, argv);
+    PathReader_traverse(args);
+}
+
+int main_1(int argc, char **argv){
+    for(size_t i = 0; i < argc; ++i){
+        printf("%s\n", argv[i]);
+    }
+    ArgReader_getArgSet(argc, argv);
     const char timeFormat1[] = "%b %d %Y ";
     const char timeFormat2[] = "%H:%M";
     struct tm lt;
