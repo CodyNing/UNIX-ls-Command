@@ -10,6 +10,14 @@
 #include <time.h>
 #include <assert.h>
 #include <string.h>
+#include <libgen.h>
+#include <unistd.h>
+
+const char *FORMAT_DEFAULT = "%s\n";
+const char *FORMAT_INODE = "%%%dld ";
+const char *FORMAT_LONGLISTING = "%%s %%%dld %%%ds %%%ds %%%dld %%s %%2d %%d %%02d:%%02d ";
+
+const char SPECIAL_CHAR[] = {'!', '$', '\'', '^', '&', '(', ')'};
 
 static char *getGroup(gid_t grpNum)
 {
@@ -79,87 +87,305 @@ static void getModeStr(mode_t m, char *modeStr)
     modeStr[MODE_STR_LEN - 1] = '\0';
 }
 
-static void printFileinfo(const char *dirp, const char *name){
-    struct stat st;
-    struct tm lt;
-    char path[PATH_MAX + 1];
-    char modeStr[11];
-    char monthStr[4];
+static size_t getIntLen(size_t i)
+{
+    char str[21];
+    snprintf(str, 21, "%ld", i);
+    return strlen(str);
+}
 
-    memset(path, 0, PATH_MAX + 1);
-    strncpy(path, dirp, strlen(dirp));
-    strcat(path, name);
-    
-    lstat(path, &st);
+static void getFilename(char *path, char *name, bool isLnk, size_t lnkSize)
+{
+    char *tmp = basename(path);
+    bool isSpecial = false;
+    for (char *p = tmp; *p != '\0'; ++p)
+    {
+        for (size_t i = 0; i < 7; ++i)
+        {
+            if (*p == SPECIAL_CHAR[i])
+            {
+                isSpecial = true;
+                break;
+            }
+        }
+        if (isSpecial)
+        {
+            break;
+        }
+    }
+    if (isSpecial)
+    {
+        name[0] = '\'';
+        name[1] = '\0';
+    }
+    else
+    {
+        name[0] = '\0';
+    }
+    strcat(name, tmp);
+    if (isSpecial)
+    {
+        const char *quote = "'";
+        strcat(name, quote);
+    }
+    if (isLnk)
+    {
+        const char *arrow = " -> ";
+        strcat(name, arrow);
+        size_t namelen = strlen(name);
+        readlink(path, name + namelen, lnkSize + 1);
+        name[namelen + lnkSize] = '\0';
+    }
+}
 
-    getModeStr(st.st_mode, modeStr);
+static void formatPrintPaths(int pathNum, char **pathList, bool opt_i, bool opt_l)
+{
 
-    localtime_r(&st.st_mtime, &lt);
+    char format[FORMAT_LEN] = "";
 
-    strftime(monthStr, 4, "%b", &lt);
+    size_t lenColNode = 1,
+           lenCollnk = 1,
+           lenColUsr = 1,
+           lenColGrp = 1,
+           lenColSize = 1,
+           i = 0;
 
-    printf("%ld %s %ld %s %s %ld %s %2d %d %02d:%02d %s\n",
-        st.st_ino, 
-        modeStr, 
-        st.st_nlink, 
-        getUserName(st.st_uid), 
-        getGroup(st.st_gid), 
-        st.st_size,
-        monthStr,
-        lt.tm_mday,
-        lt.tm_year + 1900,
-        lt.tm_hour,
-        lt.tm_min,
-        name);
+    struct stat st_arr[pathNum];
+
+    for (i = 0; i < pathNum; ++i)
+    {
+        char *path = pathList[i];
+
+        size_t len;
+        struct stat st;
+
+        lstat(path, st_arr + i);
+
+        st = st_arr[i];
+
+        if (opt_i)
+        {
+            len = getIntLen(st.st_ino);
+            if (len > lenColNode)
+            {
+                lenColNode = len;
+            }
+        }
+        if (opt_l)
+        {
+            len = getIntLen(st.st_nlink);
+            if (len > lenCollnk)
+            {
+                lenCollnk = len;
+            }
+            len = strlen(getUserName(st.st_uid));
+            if (len > lenColUsr)
+            {
+                lenColUsr = len;
+            }
+            len = strlen(getGroup(st.st_gid));
+            if (len > lenColGrp)
+            {
+                lenColGrp = len;
+            }
+            len = getIntLen(st.st_size);
+            if (len > lenColSize)
+            {
+                lenColSize = len;
+            }
+        }
+    }
+
+    if (opt_i)
+    {
+        char formati[FORMAT_INODE_LEN];
+        snprintf(formati, FORMAT_INODE_LEN, FORMAT_INODE, lenColNode);
+        strncpy(format, formati, FORMAT_INODE_LEN);
+    }
+    if (opt_l)
+    {
+        char formatl[FORMAT_LONGLISTING_LEN];
+        snprintf(formatl, FORMAT_LONGLISTING_LEN, FORMAT_LONGLISTING, lenCollnk, lenColUsr, lenColGrp, lenColSize);
+        strcat(format, formatl);
+    }
+
+    strcat(format, FORMAT_DEFAULT);
+
+    for (i = 0; i < pathNum; ++i)
+    {
+        struct stat st = st_arr[i];
+
+        char filename[NAME_MAX * 2 + PATH_MAX];
+        size_t pathLen = strlen(pathList[i]) + 1;
+        char pathcopy[pathLen];
+        strncpy(pathcopy, pathList[i], pathLen);
+        getFilename(pathcopy, filename, S_ISLNK(st.st_mode), st.st_size);
+
+        if (opt_l)
+        {
+            struct tm lt;
+            char modeStr[MODE_STR_LEN];
+            char monthStr[MONTH_STR_LEN];
+
+            getModeStr(st.st_mode, modeStr);
+
+            localtime_r(&st.st_mtime, &lt);
+
+            strftime(monthStr, MONTH_STR_LEN, "%b", &lt);
+            if (opt_i)
+            {
+                printf(format,
+                       st.st_ino,
+                       modeStr,
+                       st.st_nlink,
+                       getUserName(st.st_uid),
+                       getGroup(st.st_gid),
+                       st.st_size,
+                       monthStr,
+                       lt.tm_mday,
+                       lt.tm_year + BASE_YEAR,
+                       lt.tm_hour,
+                       lt.tm_min,
+                       filename);
+            }
+            else
+            {
+                printf(format,
+                       modeStr,
+                       st.st_nlink,
+                       getUserName(st.st_uid),
+                       getGroup(st.st_gid),
+                       st.st_size,
+                       monthStr,
+                       lt.tm_mday,
+                       lt.tm_year + BASE_YEAR,
+                       lt.tm_hour,
+                       lt.tm_min,
+                       filename);
+            }
+        }
+        else if (opt_i)
+        {
+            printf(format, st.st_ino, filename);
+        }
+        else
+        {
+            printf(format, filename);
+        }
+    }
+}
+
+static size_t splitPathList(size_t pathNum, char **pathList, char **dirList, char **nonDirList)
+{
+    size_t i = 0, dirCount = 0, nonDirCount = 0;
+    for (; i < pathNum; ++i)
+    {
+        char *path = pathList[i];
+
+        struct stat st;
+
+        if (lstat(path, &st) == -1)
+        {
+            fprintf(stderr, "myls: cannot access '%s': No such file or directory", path);
+            continue;
+        }
+
+        if (S_ISDIR(st.st_mode))
+        {
+            dirList[dirCount++] = path;
+        }
+        else
+        {
+            nonDirList[nonDirCount++] = path;
+        }
+    }
+    return dirCount;
+}
+
+static int ascii_sort(const struct dirent **p1, const struct dirent **p2)
+{
+    char const *pc1 = (*p1)->d_name, *pc2 = (*p2)->d_name;
+    for(; *pc1 == *pc2 && *pc1 != '\0' && *pc2 != '\0'; ++pc1, ++pc2);
+    return (*pc1 - *pc2);
+}
+
+static int hiddenFilter(const struct dirent *p){
+    return (p->d_name[0] != '.');
 }
 
 static void traverseDir(const char *path, bool opt_i, bool opt_l, bool opt_R)
 {
 
     struct dirent **namelist;
-    int n;
-    n = scandir(path, &namelist, NULL, alphasort);
-    if (n == -1)
+    const char *slash = "/";
+    int fileCount;
+    size_t i = 0;
+    fileCount = scandir(path, &namelist, hiddenFilter, ascii_sort);
+    if (fileCount == -1)
     {
         fprintf(stderr, "myls: fail to open '%s'", path);
         return;
     }
 
-    for (size_t i = 0; i < n; ++i)
+    char *pathList[fileCount];
+
+    for (i = 0; i < fileCount; ++i)
     {
-        printFileinfo(path, namelist[i]->d_name);
+        size_t pathLen = strlen(path);
+        pathList[i] = malloc(pathLen + NAME_MAX + 1);
+        strncpy(pathList[i], path, NAME_MAX);
+        if (path[pathLen - 1] != '/')
+        {
+            strcat(pathList[i], slash);
+        }
+        strcat(pathList[i], namelist[i]->d_name);
+        pathList[i][pathLen + NAME_MAX] = '\0';
+    }
+
+    printf("%s:\n", path);
+    formatPrintPaths(fileCount, pathList, opt_i, opt_l);
+
+    if (opt_R)
+    {
+        char *path;
+        for (size_t i = 0; i < fileCount; ++i)
+        {
+            path = pathList[i];
+            struct stat st;
+
+            if (lstat(path, &st) == -1)
+            {
+                fprintf(stderr, "myls: cannot access '%s': No such file or directory", path);
+                continue;
+            }
+
+            if (S_ISDIR(st.st_mode))
+            {
+                printf("\n");
+                traverseDir(path, opt_i, opt_l, opt_R);
+            }
+        }
+    }
+    for (i = 0; i < fileCount; ++i)
+    {
         free(namelist[i]);
+        free(pathList[i]);
     }
-}
-
-static void traverse(const char *path, bool opt_i, bool opt_l, bool opt_R)
-{
-    struct stat st;
-    if (lstat(path, &st) == -1)
-    {
-        fprintf(stderr, "myls: cannot access '%s': No such file or directory", path);
-        return;
-    }
-
-    if (S_ISDIR(st.st_mode))
-    {
-        traverseDir(path, opt_i, opt_l, opt_R);
-    }
-    else if (S_ISREG(st.st_mode))
-    {
-        printFileinfo("./", path);
-    }
-    else if (S_ISLNK(st.st_mode))
-    {
-        printFileinfo("./", path);
-    }
+    free(namelist);
 }
 
 void PathReader_traverse(argSet *pArgSet)
 {
     assert(pArgSet);
     char *path;
-    while((path = List_trim(pArgSet->pathList))){
-        traverse(path, pArgSet->showIndex, pArgSet->longListing, pArgSet->recursive);
+    char *dirList[MAX_PATH_NUM];
+    char *nonDirList[MAX_PATH_NUM];
+    size_t dirCount = splitPathList(pArgSet->pathNum, pArgSet->pathList, dirList, nonDirList);
+    formatPrintPaths(pArgSet->pathNum - dirCount, nonDirList, pArgSet->showIndex, pArgSet->longListing);
+    for (size_t i = 0; i < dirCount; ++i)
+    {
+        path = dirList[i];
+        printf("\n");
+        traverseDir(path, pArgSet->showIndex, pArgSet->longListing, pArgSet->recursive);
     }
 }

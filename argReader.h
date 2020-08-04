@@ -1,7 +1,8 @@
 #ifndef _ARGREADER_H_
 #define _ARGREADER_H_
 
-#include "list.h"
+#define MAX_PATH_NUM 1024
+
 #include <stdbool.h>
 
 typedef struct argSet_s argSet;
@@ -9,10 +10,11 @@ struct argSet_s {
     bool showIndex;
     bool longListing;
     bool recursive;
-    List *pathList;
+    char **pathList;
+    int pathNum;
 };
 
 argSet* ArgReader_getArgSet(int argc, char **argv);
-void ArgReader_getArgSet_r(argSet *pArgset, List *pPathList, int argc, char **argv);
+void ArgReader_getArgSet_r(argSet *pArgset, char **pPathList, int argc, char **argv);
 
 #endif

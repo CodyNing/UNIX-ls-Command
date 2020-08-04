@@ -31,19 +31,27 @@ static void getSwitch(const char *arg, argSet *pArgSet)
     }
 }
 
+static int ascii_sort(const void *p1, const void *p2)
+{
+    char *pc1 = *(char * const *)p1, *pc2 = *(char * const *)p2;
+    for (; *pc1 == *pc2 && *pc1 != '\0' && *pc2 != '\0'; ++pc1, ++pc2);
+    return (*pc1 - *pc2);
+}
+
 argSet *ArgReader_getArgSet(int argc, char **argv)
 {
     argSet *pArgset = malloc(sizeof(argSet));
-    List *pPathList = List_create();
+    char **pPathList = malloc(sizeof(char *) * MAX_PATH_NUM);
     ArgReader_getArgSet_r(pArgset, pPathList, argc, argv);
     return pArgset;
 }
 
-void ArgReader_getArgSet_r(argSet *pArgset, List *pPathList, int argc, char **argv)
+void ArgReader_getArgSet_r(argSet *pArgset, char **pPathList, int argc, char **argv)
 {
+    size_t pathCount = 0, i = 0;
     assert(pArgset && pPathList);
     pArgset->pathList = pPathList;
-    for (size_t i = 1; i < argc; ++i)
+    for (i = 1; i < argc; ++i)
     {
         char *arg = argv[i];
         if (isSwitch(arg))
@@ -52,10 +60,14 @@ void ArgReader_getArgSet_r(argSet *pArgset, List *pPathList, int argc, char **ar
         }
         else
         {
-            if(List_append(pPathList, arg) == -1){
-                printf("myls: Cannot process more then %d paths", LIST_MAX_NUM_NODES);
+            if (pathCount + 1 > MAX_PATH_NUM)
+            {
+                printf("myls: Cannot process more then %d paths", MAX_PATH_NUM);
                 exit(EXIT_FAILURE);
             }
+            pPathList[pathCount++] = arg;
         }
     }
+    qsort(pPathList, pathCount, sizeof(char *), ascii_sort);
+    pArgset->pathNum = pathCount;
 }
