@@ -15,8 +15,8 @@
 #include <errno.h>
 
 const char *FORMAT_DEFAULT = "%s\n";
-const char *FORMAT_INODE = "%%%dld ";
-const char *FORMAT_LONGLISTING = "%%s %%%dld %%-%ds %%-%ds %%%dld %%s %%2d %%d %%02d:%%02d ";
+const char *FORMAT_INODE = "%%%dllu ";
+const char *FORMAT_LONGLISTING = "%%s %%%dld %%-%ds %%-%ds %%%dllu %%s %%2d %%d %%02d:%%02d ";
 
 const char SPECIAL_CHAR[] = {' ', '!', '$', '\'', '^', '&', '(', ')'};
 
