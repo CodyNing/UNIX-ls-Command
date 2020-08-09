@@ -7,8 +7,16 @@ build:
 
 
 run: build
-	ls -v1ilR /home/crystalloid/cmpt300 > 1.txt
-	./myls -ilR /home/crystalloid/cmpt300 > 2.txt
+	ls -v1ilR ..
+	./myls ..
+	./myls -i ..
+	./myls -l ..
+	./myls -R ..
+	./myls -il ..
+	./myls -iR ..
+	./myls -lR ..
+	./myls -ilR ..
+
 
 valgrind: build
 	valgrind --leak-check=full --show-leak-kinds=all ./myls -ilR /home/crystalloid/cmpt300 > 2.txt

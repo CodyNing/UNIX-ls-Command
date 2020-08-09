@@ -12,12 +12,13 @@
 #include <string.h>
 #include <libgen.h>
 #include <unistd.h>
+#include <errno.h>
 
 const char *FORMAT_DEFAULT = "%s\n";
 const char *FORMAT_INODE = "%%%dld ";
-const char *FORMAT_LONGLISTING = "%%s %%%dld %%%ds %%%ds %%%dld %%s %%2d %%d %%02d:%%02d ";
+const char *FORMAT_LONGLISTING = "%%s %%%dld %%-%ds %%-%ds %%%dld %%s %%2d %%d %%02d:%%02d ";
 
-const char SPECIAL_CHAR[] = {'!', '$', '\'', '^', '&', '(', ')'};
+const char SPECIAL_CHAR[] = {' ', '!', '$', '\'', '^', '&', '(', ')'};
 
 static char *getGroup(gid_t grpNum)
 {
@@ -94,47 +95,74 @@ static size_t getIntLen(size_t i)
     return strlen(str);
 }
 
-static void getFilename(char *path, char *name, bool isLnk, size_t lnkSize)
+static bool isSpecialPath(const char *path)
 {
-    char *tmp = basename(path);
-    bool isSpecial = false;
+    size_t pathLen = strlen(path) + 1;
+    char pathcopy[pathLen];
+    strncpy(pathcopy, path, pathLen);
+    char *tmp = basename(pathcopy);
     for (char *p = tmp; *p != '\0'; ++p)
     {
         for (size_t i = 0; i < 7; ++i)
         {
             if (*p == SPECIAL_CHAR[i])
             {
-                isSpecial = true;
-                break;
+                return true;
             }
         }
-        if (isSpecial)
-        {
-            break;
-        }
     }
-    if (isSpecial)
+    return false;
+}
+
+static void quoteStr(const char *str, char *quoteStr)
+{
+    size_t len = strlen(str);
+    memset(quoteStr, 0, len + 3);
+    quoteStr[0] = '\'';
+    strncpy(quoteStr + 1, str, len);
+    quoteStr[len + 1] = '\'';
+}
+
+static void getFilename(char *path, char *name, bool isLnk, size_t lnkSize)
+{
+    size_t pathLen = strlen(path) + 1;
+    char pathcopy[pathLen];
+    strncpy(pathcopy, path, pathLen);
+    char *tmp = basename(pathcopy);
+    size_t namelen = strlen(tmp);
+
+    if (isSpecialPath(path))
     {
-        name[0] = '\'';
-        name[1] = '\0';
+        quoteStr(tmp, name);
+        namelen += 2;
     }
     else
     {
-        name[0] = '\0';
-    }
-    strcat(name, tmp);
-    if (isSpecial)
-    {
-        const char *quote = "'";
-        strcat(name, quote);
+        strcpy(name, tmp);
     }
     if (isLnk)
     {
         const char *arrow = " -> ";
+        char lnkPath[lnkSize + 1];
+
+        if (readlink(path, lnkPath, lnkSize + 1) == -1)
+        {
+            fprintf(stderr, "myls: unable to read symbolic link '%s': %s\n", path, strerror(errno));
+            return;
+        }
+        lnkPath[lnkSize] = '\0';
+
         strcat(name, arrow);
-        size_t namelen = strlen(name);
-        readlink(path, name + namelen, lnkSize + 1);
-        name[namelen + lnkSize] = '\0';
+        namelen += 4;
+
+        if (isSpecialPath(name))
+        {
+            quoteStr(lnkPath, name + namelen);
+        }
+        else
+        {
+            strcat(name, lnkPath);
+        }
     }
 }
 
@@ -142,6 +170,7 @@ static void formatPrintPaths(int pathNum, char **pathList, bool opt_i, bool opt_
 {
 
     char format[FORMAT_LEN] = "";
+    bool hasSpecial = false;
 
     size_t lenColNode = 1,
            lenCollnk = 1,
@@ -159,9 +188,21 @@ static void formatPrintPaths(int pathNum, char **pathList, bool opt_i, bool opt_
         size_t len;
         struct stat st;
 
-        lstat(path, st_arr + i);
+        //all path has been checked, this will never happen
+        if (lstat(path, st_arr + i) == -1)
+        {
+            fprintf(stderr, "myls: cannot access '%s': %s\n", path, strerror(errno));
+            --i;
+            --pathNum;
+            continue;
+        }
 
         st = st_arr[i];
+
+        if (isSpecialPath(path))
+        {
+            hasSpecial = true;
+        }
 
         if (opt_i)
         {
@@ -214,12 +255,17 @@ static void formatPrintPaths(int pathNum, char **pathList, bool opt_i, bool opt_
     for (i = 0; i < pathNum; ++i)
     {
         struct stat st = st_arr[i];
-
+        char *path = pathList[i];
         char filename[NAME_MAX * 2 + PATH_MAX];
-        size_t pathLen = strlen(pathList[i]) + 1;
-        char pathcopy[pathLen];
-        strncpy(pathcopy, pathList[i], pathLen);
-        getFilename(pathcopy, filename, S_ISLNK(st.st_mode), st.st_size);
+        if (hasSpecial && !isSpecialPath(path))
+        {
+            filename[0] = ' ';
+            getFilename(path, filename + 1, S_ISLNK(st.st_mode), st.st_size);
+        }
+        else
+        {
+            getFilename(path, filename, S_ISLNK(st.st_mode), st.st_size);
+        }
 
         if (opt_l)
         {
@@ -275,9 +321,11 @@ static void formatPrintPaths(int pathNum, char **pathList, bool opt_i, bool opt_
     }
 }
 
-static size_t splitPathList(size_t pathNum, char **pathList, char **dirList, char **nonDirList)
+static void splitPathList(size_t pathNum, char **pathList, char **dirList, size_t *dirCount, char **nonDirList, size_t *nonDirCount)
 {
-    size_t i = 0, dirCount = 0, nonDirCount = 0;
+    size_t i = 0;
+    *dirCount = 0;
+    *nonDirCount = 0;
     for (; i < pathNum; ++i)
     {
         char *path = pathList[i];
@@ -286,30 +334,31 @@ static size_t splitPathList(size_t pathNum, char **pathList, char **dirList, cha
 
         if (lstat(path, &st) == -1)
         {
-            fprintf(stderr, "myls: cannot access '%s': No such file or directory", path);
+            fprintf(stderr, "myls: cannot access '%s': %s\n", path, strerror(errno));
             continue;
         }
 
         if (S_ISDIR(st.st_mode))
         {
-            dirList[dirCount++] = path;
+            dirList[(*dirCount)++] = path;
         }
         else
         {
-            nonDirList[nonDirCount++] = path;
+            nonDirList[(*nonDirCount)++] = path;
         }
     }
-    return dirCount;
 }
 
 static int ascii_sort(const struct dirent **p1, const struct dirent **p2)
 {
     char const *pc1 = (*p1)->d_name, *pc2 = (*p2)->d_name;
-    for(; *pc1 == *pc2 && *pc1 != '\0' && *pc2 != '\0'; ++pc1, ++pc2);
+    for (; *pc1 == *pc2 && *pc1 != '\0' && *pc2 != '\0'; ++pc1, ++pc2)
+        ;
     return (*pc1 - *pc2);
 }
 
-static int hiddenFilter(const struct dirent *p){
+static int hiddenFilter(const struct dirent *p)
+{
     return (p->d_name[0] != '.');
 }
 
@@ -323,7 +372,7 @@ static void traverseDir(const char *path, bool opt_i, bool opt_l, bool opt_R)
     fileCount = scandir(path, &namelist, hiddenFilter, ascii_sort);
     if (fileCount == -1)
     {
-        fprintf(stderr, "myls: fail to open '%s'", path);
+        fprintf(stderr, "myls: cannot open directory '%s': %s\n", path, strerror(errno));
         return;
     }
 
@@ -355,7 +404,7 @@ static void traverseDir(const char *path, bool opt_i, bool opt_l, bool opt_R)
 
             if (lstat(path, &st) == -1)
             {
-                fprintf(stderr, "myls: cannot access '%s': No such file or directory", path);
+                fprintf(stderr, "myls: cannot access '%s': %s\n", path, strerror(errno));
                 continue;
             }
 
@@ -380,8 +429,9 @@ void PathReader_traverse(argSet *pArgSet)
     char *path;
     char *dirList[MAX_PATH_NUM];
     char *nonDirList[MAX_PATH_NUM];
-    size_t dirCount = splitPathList(pArgSet->pathNum, pArgSet->pathList, dirList, nonDirList);
-    formatPrintPaths(pArgSet->pathNum - dirCount, nonDirList, pArgSet->showIndex, pArgSet->longListing);
+    size_t dirCount = 0, nonDirCount = 0;
+    splitPathList(pArgSet->pathNum, pArgSet->pathList, dirList, &dirCount, nonDirList, &nonDirCount);
+    formatPrintPaths(nonDirCount, nonDirList, pArgSet->showIndex, pArgSet->longListing);
     for (size_t i = 0; i < dirCount; ++i)
     {
         path = dirList[i];

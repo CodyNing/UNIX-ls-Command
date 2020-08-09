@@ -41,7 +41,7 @@ static int ascii_sort(const void *p1, const void *p2)
 argSet *ArgReader_getArgSet(int argc, char **argv)
 {
     argSet *pArgset = malloc(sizeof(argSet));
-    char **pPathList = malloc(sizeof(char *) * MAX_PATH_NUM);
+    char **pPathList = malloc(sizeof(char *) * argc - 1);
     ArgReader_getArgSet_r(pArgset, pPathList, argc, argv);
     return pArgset;
 }
@@ -60,13 +60,17 @@ void ArgReader_getArgSet_r(argSet *pArgset, char **pPathList, int argc, char **a
         }
         else
         {
-            if (pathCount + 1 > MAX_PATH_NUM)
-            {
-                printf("myls: Cannot process more then %d paths", MAX_PATH_NUM);
-                exit(EXIT_FAILURE);
-            }
-            pPathList[pathCount++] = arg;
+            break;
         }
+    }
+    for(; i < argc; ++i){
+        char *arg = argv[i];
+        if (pathCount + 1 > MAX_PATH_NUM)
+        {
+            printf("myls: Cannot process more then %d paths", MAX_PATH_NUM);
+            exit(EXIT_FAILURE);
+        }
+        pPathList[pathCount++] = arg;
     }
     qsort(pPathList, pathCount, sizeof(char *), ascii_sort);
     pArgset->pathNum = pathCount;
