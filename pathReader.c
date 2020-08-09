@@ -199,11 +199,6 @@ static void formatPrintPaths(int pathNum, char **pathList, bool opt_i, bool opt_
 
         st = st_arr[i];
 
-        if (isSpecialPath(path))
-        {
-            hasSpecial = true;
-        }
-
         if (opt_i)
         {
             len = getIntLen(st.st_ino);
@@ -214,6 +209,11 @@ static void formatPrintPaths(int pathNum, char **pathList, bool opt_i, bool opt_
         }
         if (opt_l)
         {
+            if (isSpecialPath(path))
+            {
+                hasSpecial = true;
+            }
+
             len = getIntLen(st.st_nlink);
             if (len > lenCollnk)
             {
@@ -257,7 +257,7 @@ static void formatPrintPaths(int pathNum, char **pathList, bool opt_i, bool opt_
         struct stat st = st_arr[i];
         char *path = pathList[i];
         char filename[NAME_MAX * 2 + PATH_MAX];
-        if (hasSpecial && !isSpecialPath(path))
+        if (opt_l && hasSpecial && !isSpecialPath(path))
         {
             filename[0] = ' ';
             getFilename(path, filename + 1, S_ISLNK(st.st_mode), st.st_size);
