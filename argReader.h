@@ -1,7 +1,7 @@
 #ifndef _ARGREADER_H_
 #define _ARGREADER_H_
 
-#define MAX_PATH_NUM 1024
+#define MAX_PATH_NUM 65536
 
 #include <stdbool.h>
 

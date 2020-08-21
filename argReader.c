@@ -4,6 +4,8 @@
 #include <assert.h>
 #include <stdio.h>
 
+char *curDir = ".";
+
 static bool isSwitch(const char *arg)
 {
     return arg && *arg == '-' && arg[1] != '\0';
@@ -71,6 +73,10 @@ void ArgReader_getArgSet_r(argSet *pArgset, char **pPathList, int argc, char **a
             exit(EXIT_FAILURE);
         }
         pPathList[pathCount++] = arg;
+    }
+    if(pathCount == 0)
+    {
+        pPathList[pathCount++] = curDir;
     }
     qsort(pPathList, pathCount, sizeof(char *), ascii_sort);
     pArgset->pathNum = pathCount;

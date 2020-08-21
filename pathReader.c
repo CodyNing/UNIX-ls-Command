@@ -123,12 +123,20 @@ static void quoteStr(const char *str, char *quoteStr)
     quoteStr[len + 1] = '\'';
 }
 
-static void getFilename(char *path, char *name, bool isLnk, size_t lnkSize)
+static void getFilename(char *path, char *name, bool isLnk, size_t lnkSize, bool opt_l, bool isBaseName)
 {
     size_t pathLen = strlen(path) + 1;
     char pathcopy[pathLen];
     strncpy(pathcopy, path, pathLen);
-    char *tmp = basename(pathcopy);
+    char *tmp;
+    if(isBaseName)
+    {
+        tmp = basename(pathcopy);
+    }
+    else
+    {
+        tmp = pathcopy;
+    }
     size_t namelen = strlen(tmp);
 
     if (isSpecialPath(path))
@@ -140,7 +148,7 @@ static void getFilename(char *path, char *name, bool isLnk, size_t lnkSize)
     {
         strcpy(name, tmp);
     }
-    if (isLnk)
+    if (opt_l && isLnk)
     {
         const char *arrow = " -> ";
         char lnkPath[lnkSize + 1];
@@ -155,7 +163,7 @@ static void getFilename(char *path, char *name, bool isLnk, size_t lnkSize)
         strcat(name, arrow);
         namelen += 4;
 
-        if (isSpecialPath(name))
+        if (isSpecialPath(lnkPath))
         {
             quoteStr(lnkPath, name + namelen);
         }
@@ -166,7 +174,7 @@ static void getFilename(char *path, char *name, bool isLnk, size_t lnkSize)
     }
 }
 
-static void formatPrintPaths(int pathNum, char **pathList, bool opt_i, bool opt_l)
+static void formatPrintPaths(int pathNum, char **pathList, bool opt_i, bool opt_l, bool isBaseName)
 {
 
     char format[FORMAT_LEN] = "";
@@ -260,11 +268,11 @@ static void formatPrintPaths(int pathNum, char **pathList, bool opt_i, bool opt_
         if (opt_l && hasSpecial && !isSpecialPath(path))
         {
             filename[0] = ' ';
-            getFilename(path, filename + 1, S_ISLNK(st.st_mode), st.st_size);
+            getFilename(path, filename + 1, S_ISLNK(st.st_mode), st.st_size, opt_l, isBaseName);
         }
         else
         {
-            getFilename(path, filename, S_ISLNK(st.st_mode), st.st_size);
+            getFilename(path, filename, S_ISLNK(st.st_mode), st.st_size, opt_l, isBaseName);
         }
 
         if (opt_l)
@@ -362,7 +370,7 @@ static int hiddenFilter(const struct dirent *p)
     return (p->d_name[0] != '.');
 }
 
-static void traverseDir(const char *path, bool opt_i, bool opt_l, bool opt_R)
+static void traverseDir(const char *path, bool opt_i, bool opt_l, bool opt_R, bool printDirName)
 {
 
     struct dirent **namelist;
@@ -391,8 +399,11 @@ static void traverseDir(const char *path, bool opt_i, bool opt_l, bool opt_R)
         pathList[i][pathLen + NAME_MAX] = '\0';
     }
 
-    printf("%s:\n", path);
-    formatPrintPaths(fileCount, pathList, opt_i, opt_l);
+    if(printDirName)
+    {
+        printf("%s:\n", path);
+    }
+    formatPrintPaths(fileCount, pathList, opt_i, opt_l, true);
 
     if (opt_R)
     {
@@ -411,7 +422,7 @@ static void traverseDir(const char *path, bool opt_i, bool opt_l, bool opt_R)
             if (S_ISDIR(st.st_mode))
             {
                 printf("\n");
-                traverseDir(path, opt_i, opt_l, opt_R);
+                traverseDir(path, opt_i, opt_l, opt_R, true);
             }
         }
     }
@@ -431,11 +442,14 @@ void PathReader_traverse(argSet *pArgSet)
     char *nonDirList[MAX_PATH_NUM];
     size_t dirCount = 0, nonDirCount = 0;
     splitPathList(pArgSet->pathNum, pArgSet->pathList, dirList, &dirCount, nonDirList, &nonDirCount);
-    formatPrintPaths(nonDirCount, nonDirList, pArgSet->showIndex, pArgSet->longListing);
+    formatPrintPaths(nonDirCount, nonDirList, pArgSet->showIndex, pArgSet->longListing, false);
     for (size_t i = 0; i < dirCount; ++i)
     {
         path = dirList[i];
-        printf("\n");
-        traverseDir(path, pArgSet->showIndex, pArgSet->longListing, pArgSet->recursive);
+        if(nonDirCount > 0 || i > 0)
+        {
+            printf("\n");
+        }
+        traverseDir(path, pArgSet->showIndex, pArgSet->longListing, pArgSet->recursive, (((dirCount + nonDirCount) > 1) || pArgSet->recursive));
     }
 }
